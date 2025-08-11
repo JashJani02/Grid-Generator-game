@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ascending Number Grid Game</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Confetti.js library for the win animation -->
+    <script src="https://cdn.jsdelivr.net/npm/confetti-js@0.0.18/dist/index.min.js"></script>
+    <style>
+        /* Custom styles for the grid and responsive design */
+        #game-grid {
+            display: grid;
+            gap: 4px;
+            width: 100%;
+            max-width: 600px; /* Limit max width for better a e s t h e t i c s */
+            margin: 0 auto;
+            aspect-ratio: 1 / 1; /* Maintain square aspect ratio */
+        }
+        .grid-cell {
+            background-color: #e5e7eb; /* lightgray-300 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1f2937; /* gray-800 */
+            border-radius: 0.5rem; /* rounded-lg */
+            transition: all 0.1s ease-in-out;
+            user-select: none;
+            cursor: pointer;
+        }
+        .grid-cell:hover:not(.correct) {
+            transform: scale(1.05);
+            background-color: #d1d5db; /* gray-400 */
+        }
+        .grid-cell.correct {
+            background-color: #10b981; /* green-500 */
+            color: white;
+            cursor: default;
+        }
+        .grid-cell.incorrect {
+            animation: shake 0.3s ease-in-out;
+            background-color: #ef4444; /* red-500 */
+            color: white;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-5px); }
+            40%, 80% { transform: translateX(5px); }
+        }
+        
+        /* Style for the fullscreen confetti canvas */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1000;
+            pointer-events: none; /* Allows clicks to pass through to the game */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans p-4">
+    <div class="container mx-auto max-w-2xl text-center">
+        <h1 class="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-blue-500">
+            Ascending Number Grid Game
+        </h1>
+
+        <p class="text-gray-300 mb-6">
+            Click the numbers in ascending order to win!
+        </p>
+
+        <div class="bg-gray-800 p-6 rounded-xl shadow-lg mb-6">
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mb-4">
+                <div class="flex items-center gap-2">
+                    <label for="rows" class="text-gray-300 text-lg">Rows:</label>
+                    <input type="number" id="rows" value="5" min="2" max="10"
+                           class="w-24 p-3 bg-gray-700 text-white border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-lg">
+                </div>
+                <div class="flex items-center gap-2">
+                    <label for="cols" class="text-gray-300 text-lg">Columns:</label>
+                    <input type="number" id="cols" value="5" min="2" max="10"
+                           class="w-24 p-3 bg-gray-700 text-white border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-lg">
+                </div>
+                <button id="generate-btn"
+                        class="px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold rounded-lg shadow-lg hover:from-blue-600 hover:to-indigo-700 transition transform hover:scale-105">
+                    Generate Grid
+                </button>
+            </div>
+            
+            <div class="flex justify-between items-center h-6 mb-4">
+                <div id="timer-display" class="text-lg font-bold">Time: 0s</div>
+                <div id="message" class="text-lg font-bold"></div>
+            </div>
+        </div>
+
+        <div id="game-grid" class="bg-gray-800 p-2 rounded-xl shadow-inner">
+            <!-- Grid cells will be injected here by JavaScript -->
+        </div>
+    </div>
+    
+    <!-- This is the canvas for the confetti animation -->
+    <canvas id="confetti-canvas"></canvas>
+
+    <script>
+        // Get DOM elements
+        const rowsInput = document.getElementById('rows');
+        const colsInput = document.getElementById('cols');
+        const generateBtn = document.getElementById('generate-btn');
+        const gameGrid = document.getElementById('game-grid');
+        const messageDiv = document.getElementById('message');
+        const timerDisplay = document.getElementById('timer-display');
+        const confettiCanvas = document.getElementById('confetti-canvas');
+
+        // Game state variables
+        let nextNumber = 1;
+        let totalCells = 0;
+        let isGameActive = false;
+        let confetti = null;
+        let timerId = null; // Variable to hold the timer's interval ID
+        let startTime = 0; // Variable to store the start time
+
+        /**
+         * Shuffles an array in place using the Fisher-Yates algorithm.
+         * @param {Array} array - The array to shuffle.
+         */
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        /**
+         * Displays a status message to the user.
+         * @param {string} text - The message text.
+         * @param {string} color - The Tailwind CSS color class (e.g., 'text-green-400').
+         */
+        function showMessage(text, color = 'text-white') {
+            messageDiv.textContent = text;
+            messageDiv.className = `text-lg font-bold ${color}`;
+        }
+
+        /**
+         * Handles a click on a grid cell.
+         * @param {Event} event - The click event.
+         */
+        function handleCellClick(event) {
+            if (!isGameActive) return;
+
+            const clickedCell = event.target;
+            const clickedNumber = parseInt(clickedCell.dataset.number);
+
+            if (clickedNumber === nextNumber) {
+                // If the user clicks 1, start the timer
+                if (clickedNumber === 1 && timerId === null) {
+                    startTime = Date.now();
+                    timerId = setInterval(() => {
+                        const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+                        timerDisplay.textContent = `Time: ${elapsedTime}s`;
+                    }, 1000);
+                }
+
+                // Correct click
+                clickedCell.classList.add('correct');
+                clickedCell.classList.remove('incorrect');
+                clickedCell.style.cursor = 'default';
+                nextNumber++;
+
+                if (nextNumber > totalCells) {
+                    // Game over - win condition met
+                    isGameActive = false;
+                    clearInterval(timerId); // Stop the timer
+                    
+                    const finalTime = Math.floor((Date.now() - startTime) / 1000);
+                    showMessage(`Congratulations! You completed the task in ${finalTime}s!`, "text-green-400");
+                    
+                    // Start confetti animation
+                    const confettiSettings = { 
+                        target: 'confetti-canvas', 
+                        max: 500,
+                        size: 1, 
+                        respawn: false, 
+                        props: ['circle', 'square', 'triangle', 'line'], 
+                        colors: [[165,104,255],[21,123,245],[255,142,201],[231,235,168]], 
+                        clock: 100
+                    };
+                    confetti = new ConfettiGenerator(confettiSettings);
+                    confetti.render();
+
+                } else {
+                    showMessage(`Great! Now find ${nextNumber}.`, "text-white");
+                }
+            } else {
+                // Incorrect click
+                clickedCell.classList.add('incorrect');
+                setTimeout(() => {
+                    clickedCell.classList.remove('incorrect');
+                }, 300);
+                showMessage(`Incorrect! Find ${nextNumber}.`, "text-red-400");
+            }
+        }
+
+        /**
+         * Generates the grid based on user input.
+         */
+        function generateGrid() {
+            // Get and validate input
+            const rows = parseInt(rowsInput.value);
+            const cols = parseInt(colsInput.value);
+
+            if (isNaN(rows) || isNaN(cols) || rows < 2 || cols < 2 || rows > 10 || cols > 10) {
+                showMessage("Please enter valid rows and columns (2-10).", "text-red-400");
+                return;
+            }
+
+            // Stop and clear any existing timer
+            if (timerId) {
+                clearInterval(timerId);
+                timerId = null; // Reset the timerId
+            }
+            timerDisplay.textContent = 'Time: 0s';
+
+            // Clear previous confetti if it exists
+            if (confetti) {
+                confetti.clear();
+            }
+
+            // Reset game state
+            nextNumber = 1;
+            totalCells = rows * cols;
+            isGameActive = true;
+            showMessage(`Find ${nextNumber} to start the timer.`);
+
+            // Clear previous grid
+            gameGrid.innerHTML = '';
+            gameGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+            // Generate and shuffle numbers
+            const numbers = Array.from({ length: totalCells }, (_, i) => i + 1);
+            shuffleArray(numbers);
+
+            // Create and append cells to the grid
+            numbers.forEach(number => {
+                const cell = document.createElement('div');
+                cell.classList.add('grid-cell');
+                cell.textContent = number;
+                cell.dataset.number = number;
+                cell.addEventListener('click', handleCellClick);
+                gameGrid.appendChild(cell);
+            });
+        }
+
+        // Add event listener to the generate button
+        generateBtn.addEventListener('click', generateGrid);
+
+        // Generate a default grid on page load
+        document.addEventListener('DOMContentLoaded', generateGrid);
+
+    </script>
+</body>
+</html>
